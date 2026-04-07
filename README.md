@@ -59,6 +59,8 @@ Simple shared web app for coordinating summer stays at a family cottage without 
 
 ## Deployment (Vercel + Supabase)
 
+The app targets **Next.js 15.5.x** (patched for security). Older **Next.js 16 + Turbopack** production builds sometimes caused a Vercel **`404 NOT_FOUND`** even when the build looked green; this stack avoids that class of issue.
+
 1. Push this project to a Git repo.
 2. Import the repo into Vercel.
 3. Add the same env vars in Vercel Project Settings (include `FAMILY_PASSCODE` if you use it).
