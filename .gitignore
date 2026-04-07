@@ -24,6 +24,13 @@
 .DS_Store
 *.pem
 
+# Accidental nested clone / local junk
+ephraim scheduler/
+
+# If SSH key was created in project folder by mistake (never commit keys)
+/downloads
+/downloads.pub
+
 # debug
 npm-debug.log*
 yarn-debug.log*
