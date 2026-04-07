@@ -34,10 +34,10 @@ Simple shared web app for coordinating summer stays at a family cottage without 
 
    - `supabase/schema.sql`
 
-4. Update the seeded passcode hash in `app_settings`:
+4. Set how login works (pick one):
 
-   - Set `family_passcode_hash` to SHA256 of your passcode.
-   - Example shell command:
+   - **Easiest:** add `FAMILY_PASSCODE=your-word` to `.env.local`. The app uses that instead of the Supabase hash.
+   - **Or** update `app_settings.family_passcode_hash` in Supabase to SHA256 of your passcode:
      ```bash
      echo -n "your-passcode" | shasum -a 256
      ```
@@ -50,17 +50,18 @@ Simple shared web app for coordinating summer stays at a family cottage without 
 
 6. Open [http://localhost:3000](http://localhost:3000).
 
-## Required Environment Variables
+## Environment Variables
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `FAMILY_SESSION_SECRET` (long random string used for auth session cookie signing)
+- `FAMILY_SESSION_SECRET` (long random string for the session cookie — not your Supabase key)
+- `FAMILY_PASSCODE` (optional): plain family password; if set, overrides `app_settings.family_passcode_hash` for login
 
 ## Deployment (Vercel + Supabase)
 
 1. Push this project to a Git repo.
 2. Import the repo into Vercel.
-3. Add the same three env vars in Vercel Project Settings.
+3. Add the same env vars in Vercel Project Settings (include `FAMILY_PASSCODE` if you use it).
 4. Deploy.
 5. Share the app URL + family passcode.
 

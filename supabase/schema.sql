@@ -43,8 +43,16 @@ values
   ('Porch Couch', 1, 4)
 on conflict (name) do nothing;
 
+-- SHA256 hex of the word "changeme" — only used if you do NOT set FAMILY_PASSCODE in env.
+-- If using FAMILY_PASSCODE on Vercel/local, login ignores this row.
 insert into app_settings (id, family_passcode_hash, max_total_guests, season_start, season_end)
-values (1, 'replace_with_sha256_hash', 9, '2026-05-15', '2026-09-15')
+values (
+  1,
+  '057ba03d6c44104863dc7361fe4578965d1887360f90a0895882e58a6248fc86',
+  9,
+  '2026-05-15',
+  '2026-09-15'
+)
 on conflict (id) do nothing;
 
 -- Recommended policies if you later switch from service-role API access to anon+RLS:

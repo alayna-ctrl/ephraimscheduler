@@ -9,6 +9,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Passcode is required" }, { status: 400 });
     }
 
+    const envPasscode = process.env.FAMILY_PASSCODE?.trim();
+    if (envPasscode) {
+      if (hashPasscode(passcode) !== hashPasscode(envPasscode)) {
+        return NextResponse.json({ error: "Incorrect passcode" }, { status: 401 });
+      }
+      await setAuthCookie();
+      return NextResponse.json({ ok: true });
+    }
+
     const supabase = getSupabaseServerClient();
     const { data, error } = await supabase
       .from("app_settings")
