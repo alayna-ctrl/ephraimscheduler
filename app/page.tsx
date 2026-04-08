@@ -105,7 +105,7 @@ function TripCard({
           </p>
           {r.notes ? (
             <p style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic", margin: "6px 0 0" }}>
-              "{r.notes}"
+              &ldquo;{r.notes}&rdquo;
             </p>
           ) : null}
         </div>
@@ -369,7 +369,7 @@ export default function Home() {
               Ephraim Cottage
             </p>
             <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "clamp(26px,5vw,38px)", color: "var(--text-primary)", margin: "0 0 8px", letterSpacing: "-.01em" }}>
-              Who's there when?
+              Who&apos;s there when?
             </h1>
             <p style={{ fontFamily: "var(--font-ui)", fontSize: 14, color: "var(--text-secondary)", maxWidth: 440, margin: 0, lineHeight: 1.6 }}>
               See upcoming stays below. Sign in with the family code to add or change trips.
@@ -481,7 +481,7 @@ export default function Home() {
               Ephraim Cottage
             </p>
             <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "clamp(22px,4vw,32px)", color: "var(--text-primary)", margin: "0 0 4px", letterSpacing: "-.01em" }}>
-              Who's there when?
+              Who&apos;s there when?
             </h1>
             <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
               {reservationCount === 0 ? "No trips yet — add yours below." : `${reservationCount} trip${reservationCount === 1 ? "" : "s"} on the calendar.`}
@@ -531,7 +531,7 @@ export default function Home() {
                 <p style={{ fontFamily: "var(--font-ui)", fontWeight: 600, fontSize: 13, color: "var(--forest-800)", margin: "0 0 6px" }}>Quick start</p>
                 <ul style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
                   <li>Use the <strong>Book a stay</strong> form below to add your trip.</li>
-                  <li>Drag across nights in the form's calendar to pick your dates.</li>
+                  <li>Drag across nights in the form&apos;s calendar to pick your dates.</li>
                   <li>Pick at least one bedroom — required before saving.</li>
                   <li>Tap a name on the overview calendar to edit that booking.</li>
                 </ul>
@@ -845,10 +845,10 @@ export default function Home() {
               <ul style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", paddingLeft: 20, margin: 0, lineHeight: 1.9 }}>
                 <li>The overview shows 3 months at once — tap any name chip to jump straight to editing that booking.</li>
                 <li>Green-tinted days are already booked; amber is your current draft before saving.</li>
-                <li>The left orange edge on a date = checkout morning. You don't sleep there that night.</li>
+                <li>The left orange edge on a date = checkout morning. You don&apos;t sleep there that night.</li>
                 <li>You must select at least one bedroom so we can catch room conflicts before they happen.</li>
-                <li>If the house would be over capacity on any night, you'll see an error and can adjust.</li>
-                <li>Past trips appear faded in the list — they're still there for reference.</li>
+                <li>If the house would be over capacity on any night, you&apos;ll see an error and can adjust.</li>
+                <li>Past trips appear faded in the list — they&apos;re still there for reference.</li>
               </ul>
               {data.settings && (
                 <p style={{ fontFamily: "var(--font-ui)", fontSize: 11, color: "var(--text-muted)", marginTop: 12, marginBottom: 0 }}>
