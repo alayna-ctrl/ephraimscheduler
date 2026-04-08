@@ -1,79 +1,161 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MonthPlanner } from "@/components/MonthPlanner";
-import type { ReservationWithSpots, SleepingSpot } from "@/lib/types";
+import type { ReservationWithSpots } from "@/lib/types";
 
-const QUICK_START_STORAGE_KEY = "family-cottage-dismissedQuickStart";
+const QS_KEY = "family-cottage-dismissedQuickStart";
 
+/* ─── Types ──────────────────────────────────────────────────── */
 type BootstrapResponse = {
   authenticated: boolean;
   reservations: ReservationWithSpots[];
-  sleepingSpots: SleepingSpot[];
-  settings: {
-    max_total_guests: number;
-    season_start: string | null;
-    season_end: string | null;
-  } | null;
+  sleepingSpots: { id: string; name: string; capacity: number; sort_order: number; active: boolean }[];
+  settings: { max_total_guests: number; season_start: string | null; season_end: string | null } | null;
 };
 
-type DraftReservation = {
-  groupName: string;
-  startDate: string;
-  endDate: string;
-  guestCount: number;
-  notes: string;
-  sleepingSpotIds: string[];
+type Draft = {
+  groupName: string; startDate: string; endDate: string;
+  guestCount: number; notes: string; sleepingSpotIds: string[];
 };
 
-const initialDraft: DraftReservation = {
-  groupName: "",
-  startDate: "",
-  endDate: "",
-  guestCount: 2,
-  notes: "",
-  sleepingSpotIds: [],
-};
+const BLANK: Draft = { groupName: "", startDate: "", endDate: "", guestCount: 2, notes: "", sleepingSpotIds: [] };
 
-function formatTripDates(start: string, end: string): string {
+/* ─── Pure helpers ───────────────────────────────────────────── */
+function fmtDates(start: string, end: string): string {
   try {
     const s = new Date(`${start}T12:00:00`);
     const e = new Date(`${end}T12:00:00`);
-    const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
     const y = s.getFullYear();
+    const mo: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
     if (s.getFullYear() === e.getFullYear()) {
-      if (s.getMonth() === e.getMonth()) {
+      if (s.getMonth() === e.getMonth())
         return `${s.toLocaleDateString("en-US", { month: "long", day: "numeric" })} – ${e.getDate()}, ${y}`;
-      }
-      return `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+      return `${s.toLocaleDateString("en-US", mo)} – ${e.toLocaleDateString("en-US", { ...mo, year: "numeric" })}`;
     }
-    return `${s.toLocaleDateString("en-US", { ...opts, year: "numeric" })} – ${e.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
-  } catch {
-    return `${start} → ${end}`;
-  }
+    return `${s.toLocaleDateString("en-US", { ...mo, year: "numeric" })} – ${e.toLocaleDateString("en-US", { ...mo, year: "numeric" })}`;
+  } catch { return `${start} → ${end}`; }
 }
 
-function todayIsoLocal(): string {
+function todayIso(): string {
   const n = new Date();
-  const y = n.getFullYear();
-  const m = String(n.getMonth() + 1).padStart(2, "0");
-  const d = String(n.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 }
 
-function friendlyError(message: string): string {
-  if (message.includes("spots are already booked")) {
-    return "Someone else already has one of those rooms for part of those nights. Pick different rooms or dates.";
-  }
-  if (message.includes("Guest capacity exceeded")) {
-    return "That many people would go over the house limit on at least one night. Try fewer guests or different dates.";
-  }
-  if (message.includes("Checkout date must be after")) {
-    return "The last day should be after the first day — that’s the day you head home (no sleep that night).";
-  }
-  return message;
+function niceError(msg: string): string {
+  if (msg.includes("spots are already booked"))
+    return "Someone already has those rooms for part of those dates. Try different rooms or dates.";
+  if (msg.includes("Guest capacity exceeded"))
+    return "That would exceed the house limit for at least one night. Reduce the guest count or shift your dates.";
+  if (msg.includes("Checkout date must be after"))
+    return "Your departure date must be after your first night.";
+  return msg;
 }
 
+/* ─── Small shared components ────────────────────────────────── */
+function Banner({ variant, children }: { variant: "forest" | "amber" | "rose"; children: React.ReactNode }) {
+  return <div className={`banner-${variant}`}>{children}</div>;
+}
+
+/* ─── Trip card ──────────────────────────────────────────────── */
+function TripCard({
+  r, authed, isEditing, onEdit, onDelete,
+}: {
+  r: ReservationWithSpots; authed: boolean; isEditing: boolean;
+  onEdit: () => void; onDelete: () => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const rooms = r.spots.map((s) => s.name).join(", ");
+  const today = todayIso();
+  const isPast = r.end_date < today;
+
+  return (
+    <li style={{
+      background: "var(--bg-card)",
+      border: `1px solid ${isEditing ? "var(--accent)" : "var(--border-light)"}`,
+      borderRadius: "var(--radius-lg)",
+      boxShadow: isEditing ? `0 0 0 2px var(--accent-faint), var(--shadow-card)` : "var(--shadow-card)",
+      padding: "16px 18px",
+      listStyle: "none",
+      opacity: isPast ? .65 : 1,
+      transition: "box-shadow .2s, border-color .2s",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
+            <p style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 16, color: "var(--text-primary)", margin: 0 }}>
+              {r.group_name}
+            </p>
+            {isPast && (
+              <span style={{ fontFamily: "var(--font-ui)", fontSize: 10, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--text-muted)", background: "var(--bg-subtle)", border: "1px solid var(--border-light)", borderRadius: 4, padding: "1px 6px" }}>
+                Past
+              </span>
+            )}
+            {isEditing && (
+              <span style={{ fontFamily: "var(--font-ui)", fontSize: 10, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--accent)", background: "var(--accent-faint)", border: "1px solid var(--accent-mid)", borderRadius: 4, padding: "1px 6px" }}>
+                Editing
+              </span>
+            )}
+          </div>
+          <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", margin: "0 0 3px" }}>
+            {fmtDates(r.start_date, r.end_date)}
+          </p>
+          <p style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+            {r.guest_count} {r.guest_count === 1 ? "person" : "people"}{rooms ? ` · ${rooms}` : ""}
+          </p>
+          {r.notes ? (
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic", margin: "6px 0 0" }}>
+              "{r.notes}"
+            </p>
+          ) : null}
+        </div>
+
+        {authed && !confirmDelete && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button type="button" onClick={onEdit} className="btn-secondary" style={{ padding: "6px 14px", fontSize: 12 }}>
+              {isEditing ? "Editing…" : "Edit"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="btn-secondary"
+              style={{ padding: "6px 12px", fontSize: 12, color: "var(--rose-700)", borderColor: "var(--rose-border)" }}
+            >
+              Remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Inline delete confirmation — no native confirm() dialog */}
+      {confirmDelete && (
+        <div className="delete-confirm">
+          <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--rose-700)", margin: 0, flex: 1 }}>
+            Remove this trip?
+          </p>
+          <button
+            type="button"
+            onClick={() => { setConfirmDelete(false); onDelete(); }}
+            className="btn-danger"
+            style={{ padding: "6px 16px", fontSize: 13 }}
+          >
+            Yes, remove
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(false)}
+            className="btn-secondary"
+            style={{ padding: "6px 14px", fontSize: 13 }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/* ─── Main page ──────────────────────────────────────────────── */
 export default function Home() {
   const [passcode, setPasscode] = useState("");
   const [authError, setAuthError] = useState("");
@@ -81,15 +163,18 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<BootstrapResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<DraftReservation>(initialDraft);
+  const [draft, setDraft] = useState<Draft>(BLANK);
   const [formError, setFormError] = useState("");
-  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
-  const [showOptionalNote, setShowOptionalNote] = useState(false);
-  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [bedroomErr, setBedroomErr] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showNote, setShowNote] = useState(false);
+  const [showHow, setShowHow] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [showQuickStart, setShowQuickStart] = useState(false);
+  const [showQS, setShowQS] = useState(false);
+  const bedroomRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLElement>(null);
 
-  const reservationCount = data?.reservations.length || 0;
+  const reservationCount = data?.reservations.length ?? 0;
 
   useEffect(() => {
     if (!toast) return;
@@ -99,710 +184,696 @@ export default function Home() {
 
   useEffect(() => {
     if (!authed) return;
-    try {
-      setShowQuickStart(!localStorage.getItem(QUICK_START_STORAGE_KEY));
-    } catch {
-      setShowQuickStart(true);
-    }
+    try { setShowQS(!localStorage.getItem(QS_KEY)); } catch { setShowQS(true); }
   }, [authed]);
 
   async function loadData() {
     setLoadError(null);
     try {
-      const response = await fetch("/api/bootstrap");
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error || "Failed to load");
-      }
+      const res = await fetch("/api/bootstrap");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to load");
       setData({
         authenticated: Boolean(body.authenticated),
-        reservations: body.reservations ?? [],
+        reservations:  body.reservations  ?? [],
         sleepingSpots: body.sleepingSpots ?? [],
-        settings: body.settings ?? null,
+        settings:      body.settings      ?? null,
       });
       setAuthed(Boolean(body.authenticated));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load";
-      setLoadError(message);
-      setData(null);
-      setAuthed(false);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load");
+      setData(null); setAuthed(false);
     }
   }
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+  useEffect(() => { void loadData(); }, []);
 
-  const sortedReservations = useMemo(() => {
-    return [...(data?.reservations || [])].sort((a, b) =>
-      a.start_date.localeCompare(b.start_date),
-    );
-  }, [data?.reservations]);
+  const sorted = useMemo(
+    () => [...(data?.reservations ?? [])].sort((a, b) => a.start_date.localeCompare(b.start_date)),
+    [data?.reservations],
+  );
 
   const nextTrip = useMemo(() => {
-    const today = todayIsoLocal();
-    return sortedReservations.find((r) => r.end_date >= today) ?? null;
-  }, [sortedReservations]);
+    const t = todayIso();
+    return sorted.find((r) => r.end_date >= t) ?? null;
+  }, [sorted]);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setAuthError("");
+  async function handleLogin(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setLoading(true); setAuthError("");
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch("/api/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ passcode }),
       });
-      const body = await response.json();
-      if (!response.ok) {
-        setAuthError(
-          body.error === "Incorrect passcode"
-            ? "That code doesn’t match. Ask a family member."
-            : body.error || "Something went wrong.",
-        );
+      const body = await res.json();
+      if (!res.ok) {
+        setAuthError(body.error === "Incorrect passcode"
+          ? "That code doesn't match — ask a family member."
+          : body.error || "Something went wrong.");
         return;
       }
-      setPasscode("");
-      await loadData();
-    } finally {
-      setLoading(false);
-    }
+      setPasscode(""); await loadData();
+    } finally { setLoading(false); }
   }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    setAuthed(false);
+    setAuthed(false); setEditingId(null); setDraft(BLANK);
     await loadData();
   }
 
-  async function submitReservation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError("");
+  async function submitReservation(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setFormError(""); setBedroomErr(false);
+
     if (!draft.startDate || !draft.endDate) {
-      setFormError("Drag on the calendar to pick your trip, or set dates under “Type dates instead”.");
+      setFormError("Drag on the calendar to choose your nights, or type dates below the calendar.");
       return;
     }
     if (draft.startDate >= draft.endDate) {
-      setFormError("The day you leave must be after your first night.");
+      setFormError("Your departure date must come after your first night.");
       return;
     }
     if (draft.sleepingSpotIds.length === 0) {
-      setFormError("Pick at least one room or sleeping spot so we know where your group stays.");
+      setBedroomErr(true);
+      setFormError("Select at least one bedroom before saving.");
+      setTimeout(() => bedroomRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
     }
+
     setLoading(true);
     try {
-      const endpoint = editingReservationId
-        ? `/api/reservations/${editingReservationId}`
-        : "/api/reservations";
-      const method = editingReservationId ? "PUT" : "POST";
-      const response = await fetch(endpoint, {
-        method,
+      const url = editingId ? `/api/reservations/${editingId}` : "/api/reservations";
+      const res = await fetch(url, {
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
       });
-      const body = await response.json();
-      if (!response.ok) {
-        setFormError(friendlyError(body.error || "Couldn’t save. Try again."));
-        return;
-      }
-
-      const savedStart = draft.startDate;
-      const savedEnd = draft.endDate;
-      const wasEditing = Boolean(editingReservationId);
-      setToast(
-        wasEditing
-          ? `Updated — ${formatTripDates(savedStart, savedEnd)}`
-          : `Trip saved — you’re on the calendar ${formatTripDates(savedStart, savedEnd)}`,
+      const body = await res.json();
+      if (!res.ok) { setFormError(niceError(body.error ?? "Couldn't save. Try again.")); return; }
+      const { startDate, endDate } = draft;
+      setToast(editingId
+        ? `Updated — ${fmtDates(startDate, endDate)}`
+        : `Saved! You're on the calendar for ${fmtDates(startDate, endDate)}`
       );
-
-      setDraft(initialDraft);
-      setEditingReservationId(null);
-      setShowOptionalNote(false);
+      setDraft(BLANK); setEditingId(null); setShowNote(false); setFormError(""); setBedroomErr(false);
       await loadData();
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  function startEdit(reservation: ReservationWithSpots) {
-    setEditingReservationId(reservation.id);
+  function startEdit(r: ReservationWithSpots) {
+    setEditingId(r.id);
     setDraft({
-      groupName: reservation.group_name,
-      startDate: reservation.start_date,
-      endDate: reservation.end_date,
-      guestCount: reservation.guest_count,
-      notes: reservation.notes || "",
-      sleepingSpotIds: reservation.spots.map((spot) => spot.id),
+      groupName: r.group_name, startDate: r.start_date, endDate: r.end_date,
+      guestCount: r.guest_count, notes: r.notes ?? "", sleepingSpotIds: r.spots.map((s) => s.id),
     });
-    setShowOptionalNote(!!reservation.notes);
-    window.scrollTo({ top: document.getElementById("add-trip")?.offsetTop ?? 0, behavior: "smooth" });
+    setShowNote(!!r.notes); setFormError(""); setBedroomErr(false);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   async function deleteReservation(id: string) {
-    if (!window.confirm("Remove this trip from the calendar?")) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/reservations/${id}`, { method: "DELETE" });
-      const body = await response.json();
-      if (!response.ok) {
-        setFormError(friendlyError(body.error || "Couldn’t remove."));
-        return;
-      }
+      const res = await fetch(`/api/reservations/${id}`, { method: "DELETE" });
+      const body = await res.json();
+      if (!res.ok) { setFormError(niceError(body.error ?? "Couldn't remove.")); return; }
       setToast("Trip removed from the calendar.");
-      if (editingReservationId === id) {
-        setEditingReservationId(null);
-        setDraft(initialDraft);
-      }
+      if (editingId === id) { setEditingId(null); setDraft(BLANK); }
       await loadData();
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  function toggleSpot(spotId: string) {
-    setDraft((current) => ({
-      ...current,
-      sleepingSpotIds: current.sleepingSpotIds.includes(spotId)
-        ? current.sleepingSpotIds.filter((id) => id !== spotId)
-        : [...current.sleepingSpotIds, spotId],
+  function toggleSpot(id: string) {
+    setBedroomErr(false); setFormError("");
+    setDraft((c) => ({
+      ...c,
+      sleepingSpotIds: c.sleepingSpotIds.includes(id)
+        ? c.sleepingSpotIds.filter((x) => x !== id)
+        : [...c.sleepingSpotIds, id],
     }));
   }
 
-  function handlePlannerSelectReservation(reservationId: string) {
-    const reservation = data?.reservations.find((r) => r.id === reservationId);
-    if (reservation) {
-      startEdit(reservation);
-    }
+  function handleOverviewEdit(id: string) {
+    const r = data?.reservations.find((x) => x.id === id);
+    if (r) startEdit(r);
   }
 
-  /** Form calendar: click and drag sets first night through checkout. */
   function handleFormRangeSelect(range: { startDate: string; endDate: string }) {
-    setFormError("");
-    setDraft((current) => ({
-      ...current,
-      startDate: range.startDate,
-      endDate: range.endDate,
-    }));
+    setFormError(""); setBedroomErr(false);
+    setDraft((c) => ({ ...c, startDate: range.startDate, endDate: range.endDate }));
   }
 
+  function clearDates() {
+    setDraft((c) => ({ ...c, startDate: "", endDate: "" }));
+    setFormError("");
+  }
+
+  /* ─── Top bar (always rendered once authed/unauthed settled) */
+  const topBar = (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "var(--forest-700)", zIndex: 60 }} aria-hidden />
+  );
+
+  /* ─── Loading skeleton ─────────────────────────────────────── */
   if (data === null && loadError === null) {
     return (
-      <main className="app-main-pad mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-4 pb-24 pt-10 lg:max-w-3xl lg:px-8">
-        <div className="space-y-5">
-          <div className="h-9 w-56 animate-pulse rounded-xl bg-stone-200/90" />
-          <div className="h-4 w-3/4 max-w-md animate-pulse rounded-lg bg-stone-200/70" />
-          <div className="h-72 animate-pulse rounded-2xl bg-stone-200/60" />
-          <div className="h-24 animate-pulse rounded-2xl bg-stone-200/50" />
-        </div>
+      <main style={{ maxWidth: 920, margin: "0 auto", padding: "40px 20px" }} className="app-main-pad">
+        {[{ h: 60, w: "40%" }, { h: 220, w: "100%" }, { h: 180, w: "100%" }].map(({ h, w }, i) => (
+          <div key={i} className="skeleton" style={{ height: h, width: w, borderRadius: 12, background: "var(--sand-200)", marginBottom: 16 }} />
+        ))}
         <p className="sr-only">Loading calendar…</p>
       </main>
     );
   }
 
+  /* ─── Load error ───────────────────────────────────────────── */
   if (data === null && loadError) {
     return (
-      <main className="app-main-pad mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-4 py-16 lg:px-8">
-        <p className="text-center text-red-800">{loadError}</p>
-        <button
-          type="button"
-          onClick={() => void loadData()}
-          className="mt-4 rounded-xl bg-teal-700 px-4 py-3 text-center font-semibold text-white transition hover:bg-teal-800 active:scale-[0.98] motion-reduce:active:scale-100"
-        >
-          Try again
-        </button>
+      <main style={{ maxWidth: 420, margin: "0 auto", padding: "80px 20px", textAlign: "center" }} className="app-main-pad">
+        <p style={{ color: "var(--rose-700)", fontFamily: "var(--font-ui)", marginBottom: 20 }}>{loadError}</p>
+        <button type="button" onClick={() => void loadData()} className="btn-primary">Try again</button>
       </main>
     );
   }
 
+  /* ─── PUBLIC VIEW ──────────────────────────────────────────── */
   if (!authed && data) {
     return (
       <>
-        <div
-          className="pointer-events-none fixed inset-x-0 top-0 z-50 h-1 bg-gradient-to-r from-teal-600 via-teal-500 to-teal-700"
-          aria-hidden
-        />
-        <main className="app-main-pad mx-auto min-h-screen w-full max-w-2xl pb-[max(6rem,env(safe-area-inset-bottom))] pt-6 lg:max-w-3xl lg:px-8">
-          <header className="mb-6 text-center sm:text-left">
-            <p className="text-sm font-medium text-teal-800">Ephraim cottage</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-stone-900 sm:text-4xl">
-              Who’s there when?
-            </h1>
-            <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-stone-600 sm:mx-0">
-              See who’s at the cottage below. Enter the family code to add or change trips.
+        {topBar}
+        <main
+          className="app-main-pad"
+          style={{ maxWidth: 920, margin: "0 auto", paddingTop: 28, paddingBottom: "max(60px, env(safe-area-inset-bottom))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}
+        >
+          {/* Page header */}
+          <header style={{ marginBottom: 24 }}>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 11, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 8 }}>
+              Ephraim Cottage
             </p>
-            {nextTrip ? (
-              <p className="mx-auto mt-4 max-w-lg rounded-xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-left text-sm text-teal-950 sm:mx-0">
-                <span className="font-semibold">Next at the cottage:</span> {nextTrip.group_name} ·{" "}
-                {formatTripDates(nextTrip.start_date, nextTrip.end_date)}
-              </p>
-            ) : null}
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "clamp(26px,5vw,38px)", color: "var(--text-primary)", margin: "0 0 8px", letterSpacing: "-.01em" }}>
+              Who's there when?
+            </h1>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 14, color: "var(--text-secondary)", maxWidth: 440, margin: 0, lineHeight: 1.6 }}>
+              See upcoming stays below. Sign in with the family code to add or change trips.
+            </p>
+            {nextTrip && (
+              <div style={{ marginTop: 14, maxWidth: 480 }}>
+                <Banner variant="forest">
+                  <strong>Next up:</strong> {nextTrip.group_name} · {fmtDates(nextTrip.start_date, nextTrip.end_date)}
+                </Banner>
+              </div>
+            )}
           </header>
 
-          <nav
-            className="sticky top-0 z-30 -mx-4 mb-6 flex gap-2 border-b border-stone-200/80 bg-[#f7f5f2]/92 px-4 py-2.5 backdrop-blur-sm supports-[backdrop-filter]:bg-[#f7f5f2]/80 lg:hidden"
-            aria-label="Jump to section"
-          >
-            <a
-              href="#month-planner"
-              className="rounded-full border border-stone-300/90 bg-white px-3 py-1.5 text-sm font-medium text-stone-800 shadow-sm transition hover:bg-stone-50 active:scale-[0.98] motion-reduce:active:scale-100"
-            >
-              Calendar
-            </a>
-            <a
-              href="#public-trips-heading"
-              className="rounded-full border border-stone-300/90 bg-white px-3 py-1.5 text-sm font-medium text-stone-800 shadow-sm transition hover:bg-stone-50 active:scale-[0.98] motion-reduce:active:scale-100"
-            >
-              Upcoming trips
-            </a>
+          {/* Jump nav — visible on all screen sizes */}
+          <nav className="jump-nav" aria-label="Page sections" style={{ marginLeft: "calc(-1 * max(1rem, env(safe-area-inset-left)))", marginRight: "calc(-1 * max(1rem, env(safe-area-inset-right)))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}>
+            <a href="#overview-cal" className="nav-pill">Calendar</a>
+            <a href="#public-trips" className="nav-pill">Upcoming trips</a>
+            <a href="#sign-in" className="nav-pill">Sign in</a>
           </nav>
 
-          <MonthPlanner reservations={sortedReservations} readOnly />
-
-        <section aria-labelledby="public-trips-heading" className="mb-10 scroll-mt-28">
-          <h2 id="public-trips-heading" className="mb-1 text-lg font-bold text-stone-900">
-            Upcoming trips
-          </h2>
-          <p className="mb-8 text-sm text-stone-500">Same information as on the calendar — read-only until you sign in.</p>
-          <ul className="space-y-3">
-            {sortedReservations.map((reservation) => (
-              <li
-                key={reservation.id}
-                className="rounded-2xl border border-stone-200/90 bg-white p-5 shadow-md ring-1 ring-stone-200/80 transition-shadow hover:shadow-lg"
-              >
-                <p className="text-lg font-semibold text-stone-900">{reservation.group_name}</p>
-                <p className="mt-1 text-base text-stone-700">
-                  {formatTripDates(reservation.start_date, reservation.end_date)}
-                </p>
-                <p className="mt-2 text-sm text-stone-600">
-                  {reservation.guest_count} {reservation.guest_count === 1 ? "person" : "people"} ·{" "}
-                  {reservation.spots.map((s) => s.name).join(", ")}
-                </p>
-                {reservation.notes ? (
-                  <p className="mt-2 text-sm italic text-stone-500">{reservation.notes}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {sortedReservations.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-stone-300 bg-white/80 p-8 text-center text-stone-600">
-              No trips yet — sign in with the family code above to add the first one.
-            </div>
-          ) : null}
-        </section>
-
-        <form
-          onSubmit={handleLogin}
-          className="space-y-4 rounded-2xl border border-stone-200/90 bg-white p-6 shadow-md ring-1 ring-stone-200/80"
-        >
-          <label className="block">
-            <span className="text-sm font-medium text-stone-700">Family code</span>
-            <input
-              type="password"
-              required
-              autoComplete="off"
-              placeholder="••••••"
-              value={passcode}
-              onChange={(event) => setPasscode(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3.5 text-lg outline-none ring-teal-600/20 focus:border-teal-600 focus:ring-4"
+          {/* 3-month read-only overview */}
+          <div style={{ marginTop: 20 }}>
+            <MonthPlanner
+              sectionId="overview-cal"
+              reservations={sorted}
+              readOnly
+              monthCount={3}
             />
-          </label>
-          {authError ? <p className="text-sm text-red-700">{authError}</p> : null}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-teal-700 py-3.5 text-lg font-semibold text-white shadow-sm transition hover:bg-teal-800 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50"
-          >
-            {loading ? "Loading…" : "Open calendar"}
-          </button>
-        </form>
+          </div>
+
+          {/* Upcoming trips */}
+          <section id="public-trips" className="jump-target" style={{ marginBottom: 32 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+              <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 20, color: "var(--text-primary)", margin: 0 }}>
+                Upcoming trips
+              </h2>
+              {sorted.length > 0 && (
+                <span style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)" }}>
+                  {sorted.length} {sorted.length === 1 ? "booking" : "bookings"}
+                </span>
+              )}
+            </div>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+              Read-only view — sign in below to add or change trips.
+            </p>
+            {sorted.length === 0 ? (
+              <div style={{ border: "1.5px dashed var(--border)", borderRadius: "var(--radius-lg)", padding: "32px 24px", textAlign: "center", color: "var(--text-muted)", fontFamily: "var(--font-ui)", fontSize: 14 }}>
+                No trips yet. Sign in to add the first one.
+              </div>
+            ) : (
+              <ul style={{ padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                {sorted.map((r) => (
+                  <TripCard key={r.id} r={r} authed={false} isEditing={false} onEdit={() => {}} onDelete={() => {}} />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Sign-in form */}
+          <div id="sign-in" className="jump-target" style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-card)", padding: "28px 24px", maxWidth: 400, marginBottom: 40 }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 20, color: "var(--text-primary)", margin: "0 0 4px" }}>
+              Family sign-in
+            </h2>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-muted)", margin: "0 0 20px" }}>
+              Enter the shared family code to manage trips.
+            </p>
+            <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label className="label" htmlFor="passcode-pub">Family code</label>
+                <input
+                  id="passcode-pub" type="password" required autoComplete="off"
+                  placeholder="••••••" value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  className="input"
+                />
+              </div>
+              {authError && <Banner variant="rose">{authError}</Banner>}
+              <button type="submit" disabled={loading} className="btn-primary" style={{ width: "100%", fontSize: 15, padding: "13px 24px" }}>
+                {loading ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+          </div>
         </main>
       </>
     );
   }
 
-  if (!data) {
-    return null;
-  }
+  if (!data) return null;
 
+  /* ─── AUTHENTICATED VIEW ───────────────────────────────────── */
   return (
     <>
-      <div
-        className="pointer-events-none fixed inset-x-0 top-0 z-50 h-1 bg-gradient-to-r from-teal-600 via-teal-500 to-teal-700"
-        aria-hidden
-      />
-      <main className="app-main-pad mx-auto min-h-screen w-full max-w-2xl pb-[max(6rem,env(safe-area-inset-bottom))] pt-6 lg:max-w-3xl lg:px-8">
+      {topBar}
+      <main
+        className="app-main-pad"
+        style={{ maxWidth: 920, margin: "0 auto", paddingTop: 24, paddingBottom: "max(60px, env(safe-area-inset-bottom))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}
+      >
+        {/* Screen-reader live region for date selection feedback */}
         <div aria-live="polite" aria-atomic="true" className="sr-only">
           {draft.startDate && draft.endDate
-            ? `Dates selected: ${formatTripDates(draft.startDate, draft.endDate)}`
-            : draft.startDate
-              ? "First night selected, drag to your last night"
-              : ""}
+            ? `Dates selected: ${fmtDates(draft.startDate, draft.endDate)}`
+            : draft.startDate ? "First night selected, drag to your last night." : ""}
         </div>
 
-        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        {/* Page header */}
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
-            <p className="text-sm font-medium text-teal-800">Ephraim cottage</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight text-stone-900 sm:text-4xl">
-              Who’s there when?
-            </h1>
-            <p className="mt-2 max-w-md text-base text-stone-600">
-              {reservationCount === 0
-                ? "Add your trip below — the calendar shows everyone’s bookings."
-                : `${reservationCount} trip${reservationCount === 1 ? "" : "s"} on the list; the calendar shows who’s on which nights.`}
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 11, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 6 }}>
+              Ephraim Cottage
             </p>
-            {nextTrip ? (
-              <p className="mt-4 max-w-lg rounded-xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-sm text-teal-950">
-                <span className="font-semibold">Next at the cottage:</span> {nextTrip.group_name} ·{" "}
-                {formatTripDates(nextTrip.start_date, nextTrip.end_date)}
-              </p>
-            ) : null}
+            <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "clamp(22px,4vw,32px)", color: "var(--text-primary)", margin: "0 0 4px", letterSpacing: "-.01em" }}>
+              Who's there when?
+            </h1>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+              {reservationCount === 0 ? "No trips yet — add yours below." : `${reservationCount} trip${reservationCount === 1 ? "" : "s"} on the calendar.`}
+            </p>
+            {nextTrip && (
+              <div style={{ marginTop: 12, maxWidth: 480 }}>
+                <Banner variant="forest">
+                  <strong>Next up:</strong> {nextTrip.group_name} · {fmtDates(nextTrip.start_date, nextTrip.end_date)}
+                </Banner>
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            className="self-start rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 active:scale-[0.98] motion-reduce:active:scale-100"
-          >
+          <button type="button" onClick={() => void handleLogout()} className="btn-secondary" style={{ flexShrink: 0 }}>
             Sign out
           </button>
         </header>
 
+        {/* Jump nav — shown on all screens */}
         <nav
-          className="sticky top-0 z-30 -mx-4 mb-6 flex gap-2 border-b border-stone-200/80 bg-[#f7f5f2]/92 px-4 py-2.5 backdrop-blur-sm supports-[backdrop-filter]:bg-[#f7f5f2]/80 lg:hidden"
-          aria-label="Jump to section"
+          className="jump-nav"
+          aria-label="Page sections"
+          style={{ marginLeft: "calc(-1 * max(1rem, env(safe-area-inset-left)))", marginRight: "calc(-1 * max(1rem, env(safe-area-inset-right)))", paddingLeft: "max(1rem, env(safe-area-inset-left))", paddingRight: "max(1rem, env(safe-area-inset-right))" }}
         >
-          <a
-            href="#add-trip"
-            className="rounded-full border border-stone-300/90 bg-white px-3 py-1.5 text-sm font-medium text-stone-800 shadow-sm transition hover:bg-stone-50 active:scale-[0.98] motion-reduce:active:scale-100"
-          >
-            Add trip
+          <a href="#overview-cal" className="nav-pill">Calendar</a>
+          <a href="#add-trip" className="nav-pill">
+            {editingId ? "Editing trip" : "Add trip"}
           </a>
-          <a
-            href="#all-trips-heading"
-            className="rounded-full border border-stone-300/90 bg-white px-3 py-1.5 text-sm font-medium text-stone-800 shadow-sm transition hover:bg-stone-50 active:scale-[0.98] motion-reduce:active:scale-100"
-          >
-            Everyone’s trips
-          </a>
+          <a href="#all-trips" className="nav-pill">All trips</a>
         </nav>
 
-        {showQuickStart ? (
-        <div className="mb-10 rounded-2xl border border-teal-200 bg-teal-50/80 p-4 shadow-md ring-1 ring-teal-200/60 sm:p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-teal-950">Quick start</p>
-              <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-teal-900/90">
-                <li>Drag on “Pick your dates” to choose your nights (family name and rooms come next).</li>
-                <li>Teal days already have bookings; your draft stays amber until you save.</li>
-                <li>Tap a name on the calendar or use Change in the list to edit a trip.</li>
-              </ul>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  localStorage.setItem(QUICK_START_STORAGE_KEY, "1");
-                } catch {
-                  /* ignore */
-                }
-                setShowQuickStart(false);
-              }}
-              className="shrink-0 rounded-lg border border-teal-300 bg-white px-3 py-2 text-sm font-medium text-teal-900 transition hover:bg-teal-100 active:scale-[0.98] motion-reduce:active:scale-100"
-            >
-              Got it
-            </button>
-          </div>
+        {/* 3-month interactive overview */}
+        <div style={{ marginTop: 20 }}>
+          <MonthPlanner
+            sectionId="overview-cal"
+            reservations={sorted}
+            readOnly
+            monthCount={3}
+            onSelectReservation={handleOverviewEdit}
+          />
         </div>
-      ) : null}
 
-      <section
-        id="add-trip"
-        className="mb-14 scroll-mt-28 rounded-2xl border border-stone-200/90 bg-white p-5 shadow-md ring-1 ring-stone-200/80 sm:p-6"
-      >
-        <h2 className="text-xl font-bold text-stone-900">
-          {editingReservationId ? "Update this trip" : "Add or change a trip"}
-        </h2>
-        <p className="mt-1 text-sm text-stone-600">
-          Drag on the calendar to choose your nights — you don’t have to type dates unless you want to.
-        </p>
+        {/* Quick start hint (first login only) */}
+        {showQS && (
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderLeft: "3px solid var(--accent)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-card)", padding: "14px 18px", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+              <div>
+                <p style={{ fontFamily: "var(--font-ui)", fontWeight: 600, fontSize: 13, color: "var(--forest-800)", margin: "0 0 6px" }}>Quick start</p>
+                <ul style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
+                  <li>Use the <strong>Book a stay</strong> form below to add your trip.</li>
+                  <li>Drag across nights in the form's calendar to pick your dates.</li>
+                  <li>Pick at least one bedroom — required before saving.</li>
+                  <li>Tap a name on the overview calendar to edit that booking.</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => { try { localStorage.setItem(QS_KEY, "1"); } catch { /* */ } setShowQS(false); }}
+                className="btn-secondary"
+                style={{ flexShrink: 0, fontSize: 12, padding: "6px 12px" }}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        )}
 
-        <form className="mt-6 space-y-5" onSubmit={submitReservation}>
-          <label className="block">
-            <span className="text-sm font-medium text-stone-700">Your name or family</span>
-            <input
-              required
-              placeholder="e.g. Mom & Dad, Sarah’s crew"
-              value={draft.groupName}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, groupName: event.target.value }))
-              }
-              className="mt-2 w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3.5 text-lg outline-none focus:border-teal-600 focus:ring-4 focus:ring-teal-600/15"
-            />
-          </label>
+        {/* ── BOOKING FORM ─────────────────────────────────────── */}
+        <section
+          ref={formRef}
+          id="add-trip"
+          className="jump-target"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-card)", padding: "22px 22px", marginBottom: 28 }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 4, flexWrap: "wrap" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 20, color: "var(--text-primary)", margin: 0 }}>
+              {editingId ? "Edit trip" : "Book a stay"}
+            </h2>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => { setEditingId(null); setDraft(BLANK); setShowNote(false); setFormError(""); setBedroomErr(false); }}
+                className="btn-secondary"
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                ✕ Cancel edit
+              </button>
+            )}
+          </div>
+          <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-muted)", margin: "0 0 22px" }}>
+            {editingId ? "Update the details below and save." : "Fill in the details, then hit Add to calendar."}
+          </p>
 
-          <div>
-            <p className="text-sm font-medium text-stone-800">When are you there?</p>
-            <p className="mt-0.5 text-xs text-stone-500">
-              Drag across the nights you’ll sleep there — the last day you drag over is your last night; checkout is the next morning (amber doesn’t include that morning).
-            </p>
-            <div className="mt-3">
+          <form onSubmit={submitReservation} noValidate style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+
+            {/* 1. Group name */}
+            <div>
+              <label className="label" htmlFor="grp-name">Your name or group</label>
+              <input
+                id="grp-name" required
+                placeholder="e.g. Mom & Dad, Sarah's crew"
+                value={draft.groupName}
+                onChange={(e) => setDraft((c) => ({ ...c, groupName: e.target.value }))}
+                className="input"
+                autoComplete="name"
+              />
+            </div>
+
+            {/* 2. Dates — calendar drag + fallback text inputs */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <p className="label" style={{ margin: 0 }}>Dates <span aria-hidden>*</span></p>
+                {(draft.startDate || draft.endDate) && (
+                  <button type="button" onClick={clearDates} className="btn-ghost" style={{ fontSize: 12 }}>
+                    Clear dates
+                  </button>
+                )}
+              </div>
+
+              {/* Single-month interactive calendar for form */}
               <MonthPlanner
-                heading="Pick your dates"
-                reservations={sortedReservations}
+                sectionId="form-cal"
+                heading="Drag to select your nights"
+                reservations={sorted}
                 rangeSelection
                 rangeStart={draft.startDate}
                 rangeEnd={draft.endDate}
                 onRangeSelect={handleFormRangeSelect}
-                onSelectReservation={handlePlannerSelectReservation}
+                onSelectReservation={handleOverviewEdit}
+                monthCount={1}
+                focusDate={draft.startDate || undefined}
               />
+
+              {/* Date selection status */}
+              {draft.startDate && draft.endDate ? (
+                <Banner variant="forest">
+                  <strong>Selected:</strong> {fmtDates(draft.startDate, draft.endDate)}
+                </Banner>
+              ) : draft.startDate && !draft.endDate ? (
+                <Banner variant="amber">
+                  Drag through the <strong>day you leave</strong> (checkout) to finish selecting.
+                </Banner>
+              ) : (
+                <p style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                  Click a day and drag across your nights. The checkout day is the morning after.
+                </p>
+              )}
+
+              {/* Manual date entry fallback */}
+              <details style={{ marginTop: 10, borderRadius: "var(--radius-md)", border: "1px solid var(--border-light)", padding: "10px 14px", background: "var(--bg-subtle)" }}>
+                <summary style={{ fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", outline: "none", userSelect: "none" }}>
+                  Type dates instead
+                </summary>
+                <div
+                  className="date-grid-2col"
+                  style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+                >
+                  <div>
+                    <label className="label" htmlFor="d-start">First night</label>
+                    <input
+                      id="d-start" type="date" value={draft.startDate}
+                      onChange={(e) => setDraft((c) => ({ ...c, startDate: e.target.value }))}
+                      className="input" style={{ fontSize: 15 }}
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="d-end">Day you leave</label>
+                    <input
+                      id="d-end" type="date" value={draft.endDate}
+                      min={draft.startDate || undefined}
+                      onChange={(e) => setDraft((c) => ({ ...c, endDate: e.target.value }))}
+                      className="input" style={{ fontSize: 15 }}
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
-            {draft.startDate && draft.endDate ? (
-              <p className="mt-3 rounded-xl border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-950">
-                <span className="font-medium">Selected:</span>{" "}
-                {formatTripDates(draft.startDate, draft.endDate)}
-              </p>
-            ) : draft.startDate && !draft.endDate ? (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
-                Drag through the <span className="font-medium">day you leave</span> (checkout) to finish.
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-stone-500">
-                Click a day and drag across the nights you’ll be there.
-              </p>
-            )}
-            <details className="mt-3 rounded-xl border border-stone-200 bg-stone-50/50 px-3 py-2 text-sm">
-              <summary className="cursor-pointer font-medium text-stone-700 outline-none hover:text-stone-900 focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-teal-600/50 focus-visible:ring-offset-2">
-                Type dates instead
-              </summary>
-              <div className="mt-3 grid gap-4 border-t border-stone-200 pt-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-medium text-stone-600">First night</span>
-                  <input
-                    type="date"
-                    value={draft.startDate}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, startDate: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-medium text-stone-600">Day you leave</span>
-                  <input
-                    type="date"
-                    value={draft.endDate}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, endDate: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-base outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
-                  />
-                </label>
-              </div>
-            </details>
-          </div>
 
-          <label className="block">
-            <span className="text-sm font-medium text-stone-700">How many people?</span>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              required
-              value={draft.guestCount}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  guestCount: Number(event.target.value || 1),
-                }))
-              }
-              className="mt-2 w-full max-w-[8rem] rounded-xl border border-stone-300 bg-stone-50 px-4 py-3.5 text-lg outline-none focus:border-teal-600 focus:ring-4 focus:ring-teal-600/15"
-            />
-          </label>
-
-          {draft.startDate && draft.endDate ? (
+            {/* 3. Guest count */}
             <div>
-              <p className="text-sm font-medium text-stone-700">Which beds / rooms?</p>
-              <p className="mt-0.5 text-xs text-stone-500">Tap all that apply for your group.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(data?.sleepingSpots || []).map((spot) => {
-                  const on = draft.sleepingSpotIds.includes(spot.id);
-                  return (
-                    <button
-                      key={spot.id}
-                      type="button"
-                      onClick={() => toggleSpot(spot.id)}
-                      className={`min-h-[44px] rounded-xl border px-4 py-3 text-left text-sm font-medium transition sm:min-h-0 ${
-                        on
-                          ? "border-teal-600 bg-teal-50 text-teal-900 ring-2 ring-teal-600/30"
-                          : "border-stone-300 bg-white text-stone-800 hover:bg-stone-50"
-                      }`}
-                    >
-                      {spot.name}
-                    </button>
-                  );
-                })}
+              <label className="label" htmlFor="guests">Number of guests</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* Stepper buttons for easier mobile use */}
+                <button
+                  type="button"
+                  aria-label="Decrease guest count"
+                  onClick={() => setDraft((c) => ({ ...c, guestCount: Math.max(1, c.guestCount - 1) }))}
+                  className="btn-secondary"
+                  style={{ width: 40, height: 40, padding: 0, fontSize: 20, flexShrink: 0 }}
+                >
+                  −
+                </button>
+                <input
+                  id="guests" type="number" min={1} max={30} required
+                  value={draft.guestCount}
+                  onChange={(e) => setDraft((c) => ({ ...c, guestCount: Math.max(1, Math.min(30, Number(e.target.value) || 1)) }))}
+                  className="input"
+                  style={{ maxWidth: 80, textAlign: "center" }}
+                  aria-label="Guest count"
+                />
+                <button
+                  type="button"
+                  aria-label="Increase guest count"
+                  onClick={() => setDraft((c) => ({ ...c, guestCount: Math.min(30, c.guestCount + 1) }))}
+                  className="btn-secondary"
+                  style={{ width: 40, height: 40, padding: 0, fontSize: 20, flexShrink: 0 }}
+                >
+                  +
+                </button>
               </div>
             </div>
-          ) : (
-            <p className="rounded-xl border border-stone-200 bg-stone-50/80 px-4 py-3 text-sm text-stone-600">
-              Pick your dates on the calendar above (or under “Type dates instead”), then choose rooms here.
-            </p>
-          )}
 
-          {!showOptionalNote && !draft.notes ? (
-            <button
-              type="button"
-              onClick={() => setShowOptionalNote(true)}
-              className="text-sm font-medium text-teal-800 underline hover:text-teal-900"
-            >
-              Add a short note (optional)
-            </button>
-          ) : null}
-          {showOptionalNote || draft.notes ? (
-            <label className="block">
-              <span className="text-sm font-medium text-stone-700">Note (optional)</span>
-              <textarea
-                rows={2}
-                placeholder="e.g. bringing the dog, kids only weekend…"
-                value={draft.notes}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, notes: event.target.value }))
-                }
-                className="mt-2 w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-base outline-none focus:border-teal-600 focus:ring-4 focus:ring-teal-600/15"
-              />
-            </label>
-          ) : null}
+            {/* 4. Bedrooms — always visible, required */}
+            <div ref={bedroomRef}>
+              <p
+                className="label"
+                style={{ marginBottom: 6, color: bedroomErr ? "var(--rose-700)" : undefined }}
+              >
+                Bedrooms / sleeping spots <span style={{ color: "var(--rose-700)" }} aria-label="required">*</span>
+              </p>
+              <p style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
+                Select all rooms your group will use. At least one is required to prevent double-booking.
+              </p>
 
-          {formError ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              {formError}
+              {(data.sleepingSpots ?? []).length === 0 ? (
+                <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>
+                  No rooms configured — contact the admin.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {(data.sleepingSpots ?? []).map((spot) => {
+                    const on = draft.sleepingSpotIds.includes(spot.id);
+                    return (
+                      <button
+                        key={spot.id}
+                        type="button"
+                        onClick={() => toggleSpot(spot.id)}
+                        className={`spot-chip${on ? " active" : ""}${bedroomErr && !on ? " spot-error" : ""}`}
+                        aria-pressed={on}
+                      >
+                        {on && <span aria-hidden style={{ fontSize: 12 }}>✓</span>}
+                        {spot.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {bedroomErr && (
+                <div style={{ marginTop: 8 }}>
+                  <Banner variant="rose">⚠ Please select at least one bedroom before saving.</Banner>
+                </div>
+              )}
             </div>
-          ) : null}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-teal-700 py-3.5 text-lg font-semibold text-white shadow-sm transition hover:bg-teal-800 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50 sm:w-auto sm:min-w-[200px]"
-            >
-              {loading ? "Saving…" : editingReservationId ? "Save changes" : "Add to calendar"}
-            </button>
-            {editingReservationId ? (
+            {/* 5. Optional note */}
+            {!showNote && !draft.notes ? (
               <button
                 type="button"
-                onClick={() => {
-                  setEditingReservationId(null);
-                  setDraft(initialDraft);
-                  setShowOptionalNote(false);
-                }}
-                className="rounded-xl border border-stone-300 px-4 py-3 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                onClick={() => setShowNote(true)}
+                className="btn-ghost"
+                style={{ alignSelf: "flex-start" }}
               >
-                Cancel
+                + Add a note (optional)
               </button>
-            ) : null}
-          </div>
-        </form>
-      </section>
-
-      <section aria-labelledby="all-trips-heading" className="mb-10 scroll-mt-28">
-        <h2 id="all-trips-heading" className="mb-1 text-lg font-bold text-stone-900">
-          Everyone’s trips
-        </h2>
-        <p className="mb-8 text-sm text-stone-500">Same trips as on the calendar — edit or remove from here.</p>
-        <ul className="space-y-3">
-          {sortedReservations.map((reservation) => (
-            <li
-              key={reservation.id}
-              className="rounded-2xl border border-stone-200/90 bg-white p-5 shadow-md ring-1 ring-stone-200/80 transition-shadow hover:shadow-lg"
-            >
-              <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-start">
-                <div>
-                  <p className="text-lg font-semibold text-stone-900">{reservation.group_name}</p>
-                  <p className="mt-1 text-base text-stone-700">
-                    {formatTripDates(reservation.start_date, reservation.end_date)}
-                  </p>
-                  <p className="mt-2 text-sm text-stone-600">
-                    {reservation.guest_count} {reservation.guest_count === 1 ? "person" : "people"}{" "}
-                    · {reservation.spots.map((s) => s.name).join(", ")}
-                  </p>
-                  {reservation.notes ? (
-                    <p className="mt-2 text-sm italic text-stone-500">{reservation.notes}</p>
-                  ) : null}
+            ) : (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label className="label" htmlFor="note" style={{ margin: 0 }}>Note (optional)</label>
+                  {!draft.notes && (
+                    <button type="button" onClick={() => setShowNote(false)} className="btn-ghost" style={{ fontSize: 11 }}>
+                      Hide
+                    </button>
+                  )}
                 </div>
-                <div className="flex shrink-0 gap-2 md:flex-col md:items-end md:justify-start">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(reservation)}
-                    className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm font-medium text-stone-800 transition hover:bg-stone-100 active:scale-[0.98] motion-reduce:active:scale-100"
-                  >
-                    Change
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteReservation(reservation.id)}
-                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-800 transition hover:bg-red-100 active:scale-[0.98] motion-reduce:active:scale-100"
-                  >
-                    Remove
-                  </button>
-                </div>
+                <textarea
+                  id="note" rows={2}
+                  placeholder="e.g. bringing the dog, kids-only weekend…"
+                  value={draft.notes}
+                  onChange={(e) => setDraft((c) => ({ ...c, notes: e.target.value }))}
+                  className="input"
+                  style={{ resize: "vertical", minHeight: 72 }}
+                />
               </div>
-            </li>
-          ))}
-        </ul>
-        {sortedReservations.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-stone-300 bg-white/80 p-8 text-center text-stone-600">
-            Be the first to add your dates — use the form above.
-          </div>
-        ) : null}
-      </section>
+            )}
 
-      <div className="mt-8">
-        <button
-          type="button"
-          onClick={() => setShowHowItWorks(!showHowItWorks)}
-          className="flex w-full items-center justify-between rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-sm font-medium text-stone-800 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-600/50 focus-visible:ring-offset-2"
-        >
-          <span>How this works</span>
-          <span className="text-stone-500">{showHowItWorks ? "−" : "+"}</span>
-        </button>
-        {showHowItWorks ? (
-          <div className="mt-2 rounded-xl border border-stone-200 bg-white px-4 py-4 text-sm leading-relaxed text-stone-600">
-            <ul className="list-disc space-y-2 pl-5">
-              <li>
-                “Pick your dates” shows who’s already booked (teal) and your selection (amber). Drag to set your
-                nights, or tap someone’s name on the calendar to edit their trip.
-              </li>
-              <li>
-                The list and room picks help everyone avoid double-booking the same room.
-              </li>
-              <li>
-                “Day you leave” is the morning you drive home — you don’t sleep there that night.
-              </li>
-              <li>
-                If the house is full for a night, we’ll ask you to adjust dates or guest count.
-              </li>
+            {/* Form-level error (non-bedroom) */}
+            {formError && !bedroomErr && (
+              <Banner variant="amber">{formError}</Banner>
+            )}
+
+            {/* Submit / cancel */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary"
+                style={{ minWidth: 180, fontSize: 15, padding: "13px 28px" }}
+              >
+                {loading ? "Saving…" : editingId ? "Save changes" : "Add to calendar"}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={() => { setEditingId(null); setDraft(BLANK); setShowNote(false); setFormError(""); setBedroomErr(false); }}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* ── ALL TRIPS LIST ────────────────────────────────────── */}
+        <section id="all-trips" className="jump-target" style={{ marginBottom: 32 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 20, color: "var(--text-primary)", margin: 0 }}>
+              All trips
+            </h2>
+            {sorted.length > 0 && (
+              <span style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-muted)" }}>
+                {sorted.length} {sorted.length === 1 ? "booking" : "bookings"}
+              </span>
+            )}
+          </div>
+          <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+            Tap Edit to change a trip, or tap a name on the calendar above.
+          </p>
+
+          {sorted.length === 0 ? (
+            <div style={{ border: "1.5px dashed var(--border)", borderRadius: "var(--radius-lg)", padding: "32px 24px", textAlign: "center", color: "var(--text-muted)", fontFamily: "var(--font-ui)", fontSize: 14 }}>
+              No trips yet — use the form above to add yours.
+            </div>
+          ) : (
+            <ul style={{ padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              {sorted.map((r) => (
+                <TripCard
+                  key={r.id} r={r} authed={authed}
+                  isEditing={editingId === r.id}
+                  onEdit={() => startEdit(r)}
+                  onDelete={() => deleteReservation(r.id)}
+                />
+              ))}
             </ul>
-            {data?.settings ? (
-              <p className="mt-3 text-xs text-stone-500">
-                House limit: {data.settings.max_total_guests} people · Typical season{" "}
-                {data.settings.season_start ?? "?"}–{data.settings.season_end ?? "?"}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          )}
+        </section>
 
-        {toast ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-0 left-0 right-0 z-50 flex justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pointer-events-none"
+        {/* ── HOW IT WORKS ─────────────────────────────────────── */}
+        <div style={{ marginBottom: 48 }}>
+          <button
+            type="button"
+            onClick={() => setShowHow((v) => !v)}
+            className="btn-secondary"
+            style={{ width: "100%", display: "flex", justifyContent: "space-between", textAlign: "left" }}
           >
-            <div className="pointer-events-auto max-w-lg rounded-xl border border-teal-200 bg-teal-950 px-4 py-3 text-center text-sm font-medium text-white shadow-lg">
+            <span>How this works</span>
+            <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{showHow ? "−" : "+"}</span>
+          </button>
+          {showHow && (
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "0 0 var(--radius-md) var(--radius-md)", padding: "16px 20px", marginTop: -1 }}>
+              <ul style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--text-secondary)", paddingLeft: 20, margin: 0, lineHeight: 1.9 }}>
+                <li>The overview shows 3 months at once — tap any name chip to jump straight to editing that booking.</li>
+                <li>Green-tinted days are already booked; amber is your current draft before saving.</li>
+                <li>The left orange edge on a date = checkout morning. You don't sleep there that night.</li>
+                <li>You must select at least one bedroom so we can catch room conflicts before they happen.</li>
+                <li>If the house would be over capacity on any night, you'll see an error and can adjust.</li>
+                <li>Past trips appear faded in the list — they're still there for reference.</li>
+              </ul>
+              {data.settings && (
+                <p style={{ fontFamily: "var(--font-ui)", fontSize: 11, color: "var(--text-muted)", marginTop: 12, marginBottom: 0 }}>
+                  House limit: {data.settings.max_total_guests} guests total ·{" "}
+                  Typical season: {data.settings.season_start ?? "?"} – {data.settings.season_end ?? "?"}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── TOAST ────────────────────────────────────────────── */}
+        {toast && (
+          <div
+            role="status" aria-live="polite"
+            style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center", pointerEvents: "none", padding: "16px max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))" }}
+          >
+            <div
+              className="toast-animate"
+              style={{ background: "var(--forest-800)", color: "#fff", fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 500, padding: "12px 22px", borderRadius: "var(--radius-md)", boxShadow: "0 4px 24px rgba(0,0,0,.28)", maxWidth: 480, textAlign: "center", pointerEvents: "auto" }}
+            >
               {toast}
             </div>
           </div>
-        ) : null}
+        )}
       </main>
     </>
   );

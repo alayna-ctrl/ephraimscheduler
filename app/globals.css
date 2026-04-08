@@ -1,71 +1,486 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f5f2;
-  --background-mid: #f0ebe3;
-  --foreground: #1c1917;
-  --card: #ffffff;
-  --accent: #0d9488;
-  --accent-hover: #0f766e;
-  --muted: #57534e;
-  --border: #e7e5e4;
+  /* Forest palette */
+  --forest-900: #0d1f16;
+  --forest-800: #1a3a2a;
+  --forest-700: #245036;
+  --forest-600: #2e6644;
+  --forest-500: #3a7d52;
+  --forest-400: #5a9e73;
+  --forest-300: #8ec4a0;
+  --forest-200: #c2dfcc;
+  --forest-100: #e4f0e9;
+  --forest-50:  #f2f8f4;
+
+  /* Warm neutrals */
+  --sand-950: #1c1610;
+  --sand-900: #2c2218;
+  --sand-800: #4a3c2e;
+  --sand-700: #6b5746;
+  --sand-600: #8c7560;
+  --sand-500: #a89080;
+  --sand-400: #c4b09e;
+  --sand-300: #ddd0c0;
+  --sand-200: #ede5d8;
+  --sand-100: #f5f0e8;
+  --sand-50:  #faf7f2;
+
+  /* Amber */
+  --amber-600: #b45309;
+  --amber-400: #d97706;
+  --amber-200: #fcd34d;
+  --amber-100: #fef3c7;
+  --amber-50:  #fffbeb;
+
+  /* Rose/error */
+  --rose-700: #be123c;
+  --rose-100: #ffe4e6;
+  --rose-border: #fca5a5;
+
+  /* Semantic aliases */
+  --bg:           var(--sand-50);
+  --bg-card:      #ffffff;
+  --bg-subtle:    var(--sand-100);
+  --text-primary:   var(--sand-900);
+  --text-secondary: var(--sand-700);
+  --text-muted:     var(--sand-500);
+  --border:         var(--sand-300);
+  --border-light:   var(--sand-200);
+  --accent:         var(--forest-600);
+  --accent-hover:   var(--forest-700);
+  --accent-faint:   var(--forest-100);
+  --accent-mid:     var(--forest-300);
+
+  /* Typography */
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-ui:      var(--font-jakarta), system-ui, -apple-system, sans-serif;
+
+  /* Spacing / radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-card:       0 1px 3px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.05);
+  --shadow-card-hover: 0 2px 6px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.08);
+
+  /* Sticky nav height — referenced for scroll-margin on jump targets */
+  --nav-height: 48px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-ui);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  /* Prevent layout shift from scrollbar appearing */
+  scrollbar-gutter: stable;
 }
 
 body {
-  background-color: var(--background);
-  background-image: radial-gradient(
-    ellipse 120% 80% at 50% -20%,
-    color-mix(in srgb, var(--background-mid) 85%, white),
-    var(--background)
-  );
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
-  font-size: 17px;
-  line-height: 1.55;
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent horizontal overflow from wide children */
+  overflow-x: hidden;
 }
 
-@media (min-width: 640px) {
-  body {
-    font-size: 16px;
-    line-height: 1.5;
-  }
-}
-
-/* Horizontal safe area for notched phones */
+/* ─── Safe-area layout ───────────────────────────────────── */
 .app-main-pad {
-  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-left:  max(1rem, env(safe-area-inset-left));
   padding-right: max(1rem, env(safe-area-inset-right));
-  padding-top: max(0.5rem, env(safe-area-inset-top));
 }
 
-/* Calendar horizontal scroll: momentum on iOS */
+/* ─── Calendar scroll ────────────────────────────────────── */
 .planner-scroll {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
 }
 
+/* ─── Cards ──────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow .2s;
+}
+.card:hover { box-shadow: var(--shadow-card-hover); }
+
+/* ─── Primary button ─────────────────────────────────────── */
+.btn-primary {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .01em;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Minimum touch target */
+  min-height: 44px;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:active:not(:disabled) { transform: scale(.98); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ─── Secondary button ───────────────────────────────────── */
+.btn-secondary {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 13px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-secondary:hover { background: var(--bg-subtle); border-color: var(--sand-400); }
+.btn-secondary:active { transform: scale(.98); }
+
+/* ─── Ghost / text button ────────────────────────────────── */
+.btn-ghost {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 13px;
+  background: transparent;
+  color: var(--accent);
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+}
+.btn-ghost:hover { color: var(--accent-hover); }
+
+/* ─── Danger button ──────────────────────────────────────── */
+.btn-danger {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 13px;
+  background: var(--rose-100);
+  color: var(--rose-700);
+  border: 1px solid var(--rose-border);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background .15s;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-danger:hover { background: #ffd7db; }
+.btn-danger:active { transform: scale(.98); }
+
+/* ─── Confirm inline delete ──────────────────────────────── */
+.delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--rose-100);
+  border: 1px solid var(--rose-border);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+}
+
+/* ─── Form inputs ────────────────────────────────────────── */
+.input {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  width: 100%;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 11px 14px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  /* Prevent iOS zoom on focus */
+  font-size: max(16px, 15px);
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.input::placeholder { color: var(--text-muted); }
+.input::-webkit-inner-spin-button,
+.input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.input[type="number"] { -moz-appearance: textfield; }
+
+/* Date inputs look nicer */
+.input[type="date"] { cursor: pointer; }
+
+.label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* ─── Bedroom / spot chips ───────────────────────────────── */
+.spot-chip {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all .15s;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  /* Checkmark prefix via ::before when active */
+}
+.spot-chip:hover {
+  border-color: var(--accent-mid);
+  background: var(--accent-faint);
+  color: var(--forest-800);
+}
+.spot-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  color: var(--forest-800);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.spot-chip.spot-error {
+  border-color: var(--rose-700);
+  background: var(--rose-100);
+  color: var(--rose-700);
+  animation: shake .3s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* ─── Jump nav ───────────────────────────────────────────── */
+.jump-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-light);
+  padding: 8px 0;
+  overflow-x: auto;
+  /* Hide scrollbar but keep scrollable */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  height: var(--nav-height);
+}
+.jump-nav::-webkit-scrollbar { display: none; }
+
+.nav-pill {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  background: var(--bg-card);
+  text-decoration: none;
+  transition: all .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+.nav-pill:hover {
+  background: var(--accent-faint);
+  border-color: var(--accent-mid);
+  color: var(--forest-800);
+}
+.nav-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ─── Scroll margin for jump targets ────────────────────── */
+.jump-target {
+  scroll-margin-top: calc(var(--nav-height) + 16px);
+}
+
+/* ─── Toast ──────────────────────────────────────────────── */
+@keyframes toast-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.toast-animate { animation: toast-in .25s ease-out; }
+
+/* ─── Loading skeleton pulse ─────────────────────────────── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: .6; }
+  50%       { opacity: .35; }
+}
+.skeleton { animation: skeleton-pulse 1.6s ease-in-out infinite; }
+
+/* ─── Calendar header days ───────────────────────────────── */
+.cal-header-day {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 7px 2px;
+  background: var(--bg-subtle);
+}
+
+/* ─── Calendar cells ─────────────────────────────────────── */
+.cal-cell {
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  position: relative;
+  /* Smooth highlight transitions */
+  transition: background .08s;
+}
+.cal-cell-booked  { background: color-mix(in srgb, var(--forest-100) 75%, white); }
+.cal-cell-draft   { background: var(--amber-100); }
+.cal-cell-checkout {
+  /* Left-border indicator: checkout day */
+  border-left: 3px solid var(--amber-400) !important;
+}
+.cal-cell-empty { background: var(--bg-subtle); }
+
+/* ─── Calendar day number bubble ─────────────────────────── */
+.cal-daynum {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background .1s;
+}
+.cal-daynum-today {
+  background: var(--accent);
+  color: #fff;
+}
+/* Past days — subtle */
+.cal-daynum-past { color: var(--text-muted); }
+
+/* ─── Calendar drag cursor ───────────────────────────────── */
+.cal-draggable { cursor: grab; }
+.cal-draggable:active { cursor: grabbing; }
+
+/* ─── Info banners ───────────────────────────────────────── */
+.banner-forest {
+  background: var(--forest-50);
+  border: 1px solid var(--forest-200);
+  color: var(--forest-800);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner-amber {
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  color: var(--amber-600);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner-rose {
+  background: var(--rose-100);
+  border: 1px solid var(--rose-border);
+  color: var(--rose-700);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ─── Dividers ───────────────────────────────────────────── */
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 0;
+}
+
+/* ─── Accessible motion reduction ───────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: .01ms !important;
   }
 }
 
-/* Comfortable tap targets for phones */
+/* ─── Coarse pointer (touch) — larger targets ────────────── */
 @media (pointer: coarse) {
-  button,
-  input[type="checkbox"],
-  label {
-    min-height: 2.75rem;
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .spot-chip { min-height: 48px; }
+
+  .nav-pill { min-height: 40px; padding: 8px 16px; }
+}
+
+/* ─── Responsive: single-column date grid on narrow screens  */
+@media (max-width: 380px) {
+  .date-grid-2col {
+    grid-template-columns: 1fr !important;
   }
 }
